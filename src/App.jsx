@@ -172,6 +172,38 @@ function App() {
       return;
     }
 
+    const verifyPaymentWithBackend = async (reference) => {
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
+        const verifyResponse = await fetch(`${apiUrl}/api/verify-payment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reference })
+        });
+
+        const result = await verifyResponse.json();
+
+        if (result.success) {
+          const paidOrder = { ...currentOrder, status: 'paid', paymentReference: reference };
+          setCurrentOrder(paidOrder);
+          setOrderHistory((prev) => prev.map((order) => (order.id === paidOrder.id ? paidOrder : order)));
+          setPaymentNotice(`✓ Payment verified successfully. Reference: ${reference}`);
+          resetToMainMenu();
+          addBotMessage(
+            `🎉 Payment completed and verified! Your order ${paidOrder.id} is confirmed. You can pick up your order at the counter.`,
+            [{ label: 'Back to main menu', value: 'menu' }]
+          );
+        } else {
+          addBotMessage(`Payment verification failed: ${result.message}. Please contact support.`);
+          setPaymentNotice(`⚠ Verification issue: ${result.message}`);
+        }
+      } catch (error) {
+        console.error('Payment verification error:', error);
+        addBotMessage(`Error verifying payment: ${error.message}. Please contact support.`);
+        setPaymentNotice(`⚠ Error: ${error.message}`);
+      }
+    };
+
     const handler = window.PaystackPop.setup({
       key: paystackKey,
       email: customerEmail,
@@ -192,14 +224,8 @@ function App() {
         addBotMessage('Payment window closed. Your order remains pending payment.');
       },
       callback: (response) => {
-        const paidOrder = { ...currentOrder, status: 'paid', paymentReference: response.reference };
-        setCurrentOrder(paidOrder);
-        setOrderHistory((prev) => prev.map((order) => (order.id === paidOrder.id ? paidOrder : order)));
-        setPaymentNotice(`Payment successful. Reference: ${response.reference}`);
-        resetToMainMenu();
-        addBotMessage(`Payment completed successfully. You are back in the chatbot. Reference ${response.reference}.`, [
-          { label: 'Back to main menu', value: 'menu' }
-        ]);
+        addBotMessage('Processing your payment... Please wait.');
+        verifyPaymentWithBackend(response.reference);
       }
     });
 

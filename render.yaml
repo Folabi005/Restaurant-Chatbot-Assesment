@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: restaurant-chatbot
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: NODE_ENV
+        value: production
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=3600
+
