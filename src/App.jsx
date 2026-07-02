@@ -25,6 +25,8 @@ function App() {
   const [mode, setMode] = useState('main');
   const [pendingSchedule, setPendingSchedule] = useState(false);
   const [paymentNotice, setPaymentNotice] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState(null); // 'processing', 'success', 'error'
+  const [isVerifying, setIsVerifying] = useState(false);
   const endOfMessagesRef = useRef(null);
 
   useEffect(() => {
@@ -164,15 +166,19 @@ function App() {
       const paidOrder = { ...currentOrder, status: 'paid' };
       setCurrentOrder(paidOrder);
       setOrderHistory((prev) => prev.map((order) => (order.id === paidOrder.id ? paidOrder : order)));
-      setPaymentNotice('Payment simulated successfully. Your order is now confirmed.');
-      resetToMainMenu();
-      addBotMessage(`Payment was successful. You are back in the chatbot and your order ${paidOrder.id} is confirmed.`, [
-        { label: 'Back to main menu', value: 'menu' }
-      ]);
+      setPaymentStatus('success');
+      setPaymentNotice('✅ Payment simulated successfully. Your order is now confirmed.');
+      setTimeout(() => {
+        resetToMainMenu();
+        addBotMessage(`🎉 Payment completed! Your order ${paidOrder.id} is confirmed. You can pick up your order at the counter.`, [
+          { label: 'Back to main menu', value: 'menu' }
+        ]);
+      }, 1500);
       return;
     }
 
     const verifyPaymentWithBackend = async (reference) => {
+      setIsVerifying(true);
       try {
         const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
         const verifyResponse = await fetch(`${apiUrl}/api/verify-payment`, {
@@ -187,27 +193,43 @@ function App() {
           const paidOrder = { ...currentOrder, status: 'paid', paymentReference: reference };
           setCurrentOrder(paidOrder);
           setOrderHistory((prev) => prev.map((order) => (order.id === paidOrder.id ? paidOrder : order)));
-          setPaymentNotice(`✓ Payment verified successfully. Reference: ${reference}`);
-          resetToMainMenu();
-          addBotMessage(
-            `🎉 Payment completed and verified! Your order ${paidOrder.id} is confirmed. You can pick up your order at the counter.`,
-            [{ label: 'Back to main menu', value: 'menu' }]
-          );
+          setPaymentStatus('success');
+          setPaymentNotice(`✅ Payment verified! Reference: ${reference}`);
+          
+          // Route back to chatbot after a brief delay
+          setTimeout(() => {
+            resetToMainMenu();
+            addBotMessage(
+              `🎉 Payment completed and verified!\n\nOrder ID: ${paidOrder.id}\nAmount: ${formatCurrency(paidOrder.total)}\nStatus: Confirmed\n\nYour order is ready. You can pick it up at the counter.`,
+              [{ label: 'Place another order', value: '1' }, { label: 'View order history', value: '98' }]
+            );
+          }, 1500);
         } else {
-          addBotMessage(`Payment verification failed: ${result.message}. Please contact support.`);
-          setPaymentNotice(`⚠ Verification issue: ${result.message}`);
+          setPaymentStatus('error');
+          setPaymentNotice(`⚠️ Verification failed: ${result.message}`);
+          addBotMessage(`Payment verification failed: ${result.message}. Please contact support or try again.`, [
+            { label: 'Retry payment', value: 'pay' },
+            { label: 'Back to menu', value: 'menu' }
+          ]);
         }
       } catch (error) {
         console.error('Payment verification error:', error);
-        addBotMessage(`Error verifying payment: ${error.message}. Please contact support.`);
-        setPaymentNotice(`⚠ Error: ${error.message}`);
+        setPaymentStatus('error');
+        setPaymentNotice(`⚠️ Error: ${error.message}`);
+        addBotMessage(`Error verifying payment: ${error.message}. Please contact support.`, [
+          { label: 'Retry payment', value: 'pay' },
+          { label: 'Back to menu', value: 'menu' }
+        ]);
+      } finally {
+        setIsVerifying(false);
       }
     };
 
+    // Open Paystack payment modal
     const handler = window.PaystackPop.setup({
       key: paystackKey,
       email: customerEmail,
-      amount: currentOrder.total * 100,
+      amount: currentOrder.total * 100, // Amount in kobo
       currency: 'NGN',
       ref: `${Date.now()}-${currentOrder.id}`,
       metadata: {
@@ -216,15 +238,24 @@ function App() {
             display_name: 'Order ID',
             variable_name: 'order_id',
             value: currentOrder.id
+          },
+          {
+            display_name: 'Order Items',
+            variable_name: 'order_items',
+            value: currentOrder.items.map(entry => `${entry.item.name} x${entry.quantity}`).join(', ')
           }
         ]
       },
-      channels: ['card', 'bank'],
+      channels: ['card', 'bank'], // Supported payment channels
       onClose: () => {
-        addBotMessage('Payment window closed. Your order remains pending payment.');
+        addBotMessage('Payment cancelled. Your order remains pending payment. Would you like to try again?', [
+          { label: 'Try payment again', value: 'pay' },
+          { label: 'Back to menu', value: 'menu' }
+        ]);
       },
       callback: (response) => {
-        addBotMessage('Processing your payment... Please wait.');
+        // Payment successful on Paystack side, now verify with backend
+        addBotMessage('✓ Payment received! Verifying with our system... Please wait.');
         verifyPaymentWithBackend(response.reference);
       }
     });
@@ -381,15 +412,36 @@ function App() {
           <div ref={endOfMessagesRef} />
         </div>
 
-        {paymentNotice ? <div className="payment-notice">{paymentNotice}</div> : null}
+        {paymentStatus && (
+          <div className={`payment-status ${paymentStatus}`}>
+            {paymentStatus === 'processing' && (
+              <>
+                <span className="spinner"></span> Processing payment...
+              </>
+            )}
+            {paymentStatus === 'success' && (
+              <>
+                ✅ {paymentNotice}
+              </>
+            )}
+            {paymentStatus === 'error' && (
+              <>
+                ⚠️ {paymentNotice}
+              </>
+            )}
+          </div>
+        )}
 
         <form className="composer" onSubmit={handleSubmit}>
           <input
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             placeholder="Type 1, 99, 98, 97, 0, 101 or a menu number"
+            disabled={isVerifying}
           />
-          <button type="submit">Send</button>
+          <button type="submit" disabled={isVerifying}>
+            {isVerifying ? 'Verifying...' : 'Send'}
+          </button>
         </form>
       </main>
     </div>
