@@ -115,6 +115,7 @@ function App() {
 
     setCurrentOrder(placedOrder);
     setOrderHistory((prev) => [placedOrder, ...prev]);
+    setMode('main');
     addBotMessage(`Order placed successfully. Your order ID is ${placedOrder.id}. Total is ${formatCurrency(placedOrder.total)}. Pay now to complete your transaction.`, [
       { label: 'Pay now', value: 'pay' },
       { label: 'Back to main menu', value: 'menu' }
